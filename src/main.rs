@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     warn!("{} contains hole", song.full_title);
 
                     let primary_artist = song.primary_artist.get("name").unwrap().as_str().unwrap().to_string();
-                    let record = OutputRecord { primary_artist, title: song.full_title, id: song.id };
+                    let record = OutputRecord { primary_artist, title: song.title, id: song.id };
                     writer.serialize(record)?;
 
                     break;

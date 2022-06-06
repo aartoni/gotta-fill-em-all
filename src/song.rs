@@ -7,5 +7,6 @@ pub struct Song {
     pub api_path: String,
     pub full_title: String,
     pub primary_artist: Value,
+    pub title: String,
     pub url: String,
 }
