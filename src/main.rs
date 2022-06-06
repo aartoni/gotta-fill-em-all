@@ -8,10 +8,17 @@ use gotta_fill_em_all::artist::Artist;
 use gotta_fill_em_all::song::Song;
 use gotta_fill_em_all::output_record::OutputRecord;
 
+use log::info;
+
 use scraper::{Html, Selector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Initialize the logger
+    pretty_env_logger::formatted_builder()
+        .filter(None, log::LevelFilter::Info)
+        .init();
+
     // Get the CSV reader
     let file_path = get_arg(1)?;
     let file = File::open(file_path)?;
@@ -22,8 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .from_reader(file);
 
     // Get a CSV writer
-    let file_path = "incomplete.csv";
-    let mut writer = csv::Writer::from_path(file_path)?;
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
 
     // Get the Genius API token
     let token = get_arg(2)?;
@@ -37,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Go through each line in the CSV
     for result in reader.deserialize() {
         let artist: Artist = result?;
-        println!("Looking at artist: {}", artist.name);
+        info!("Looking at artist: {}", artist.name);
 
         // Get every song for the artist
         let mut next_page: Option<u64> = Some(1);
@@ -86,14 +92,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
 
             // Scrape the web page for the song
-            println!("Looking at song {}", song.full_title);
+            info!("Looking at song {}", song.full_title);
             let song_page = reqwest::get(&song.url).await?.text().await?;
             let song_page = Html::parse_document(&song_page);
 
             // Check the lyrics for a hole
             for lyrics in song_page.select(&lyrics_selector) {
                 if lyrics.inner_html().contains("?]") {
-                    println!("{} contains hole", song.full_title);
+                    info!("{} contains hole", song.full_title);
 
                     let primary_artist = song.primary_artist.get("name").unwrap().as_str().unwrap().to_string();
                     let record = OutputRecord { primary_artist, title: song.full_title, id: song.id };
