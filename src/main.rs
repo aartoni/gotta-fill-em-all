@@ -8,7 +8,7 @@ use gotta_fill_em_all::artist::Artist;
 use gotta_fill_em_all::song::Song;
 use gotta_fill_em_all::output_record::OutputRecord;
 
-use log::info;
+use log::{info, warn};
 
 use scraper::{Html, Selector};
 
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Check the lyrics for a hole
             for lyrics in song_page.select(&lyrics_selector) {
                 if lyrics.inner_html().contains("?]") {
-                    info!("{} contains hole", song.full_title);
+                    warn!("{} contains hole", song.full_title);
 
                     let primary_artist = song.primary_artist.get("name").unwrap().as_str().unwrap().to_string();
                     let record = OutputRecord { primary_artist, title: song.full_title, id: song.id };
