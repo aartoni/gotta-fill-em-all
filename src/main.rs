@@ -1,8 +1,11 @@
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::{error::Error, env};
 use std::fs::File;
 
 use csv::{Trim, ReaderBuilder};
+
+use futures::future::join_all;
 
 use gotta_fill_em_all::artist::Artist;
 use gotta_fill_em_all::song::Song;
@@ -29,7 +32,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .from_reader(file);
 
     // Get a CSV writer
-    let mut writer = csv::Writer::from_writer(std::io::stdout());
+    let writer = csv::Writer::from_writer(std::io::stdout());
+    let writer = Arc::new(Mutex::new(writer));
 
     // Get the Genius API token
     let token = get_arg(2)?;
@@ -38,7 +42,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let client = reqwest::Client::new();
 
     // Keep track of which songs has been checked
-    let mut checked = HashSet::new();
+    let checked = Arc::new(Mutex::new(HashSet::new()));
+
+    // Keep track of each spawned thread
+    // Will join this later on
+    let mut handles = Vec::new();
 
     // Go through each line in the CSV
     for result in reader.deserialize() {
@@ -87,34 +95,43 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Check each song's lyrics
         for song in songs {
             // Check whether the song was already seen
-            if checked.contains(&song.id) {
+            if checked.lock().unwrap().contains(&song.id) {
                 continue;
             }
 
-            // Scrape the web page for the song
-            info!("Looking at song {}", song.full_title);
-            let song_page = reqwest::get(&song.url).await?.text().await?;
-            let song_page = Html::parse_document(&song_page);
+            let checked = checked.clone();
+            let lyrics_selector = lyrics_selector.clone();
+            let writer = writer.clone();
 
-            // Check the lyrics for a hole
-            for lyrics in song_page.select(&lyrics_selector) {
-                if lyrics.inner_html().contains("?]") {
-                    warn!("{} contains hole", song.full_title);
+            handles.push(tokio::spawn(async move {
+                // Scrape the web page for the song
+                info!("Looking at song {}", song.full_title);
+                let song_page = reqwest::get(&song.url).await.unwrap().text().await.unwrap();
+                let song_page = Html::parse_document(&song_page);
 
-                    let primary_artist = song.primary_artist.get("name").unwrap().as_str().unwrap().to_string();
-                    let record = OutputRecord { primary_artist, title: song.title, id: song.id };
-                    writer.serialize(record)?;
+                // Check the lyrics for a hole
+                for lyrics in song_page.select(&lyrics_selector) {
+                    if lyrics.inner_html().contains("?]") {
+                        warn!("{} contains hole", song.full_title);
 
-                    break;
+                        let primary_artist = song.primary_artist.get("name").unwrap().as_str().unwrap().to_string();
+                        let record = OutputRecord { primary_artist, title: song.title, id: song.id };
+                        writer.lock().unwrap().serialize(record).unwrap();
+
+                        break;
+                    }
                 }
-            }
+            }));
 
-            checked.insert(song.id);
+            checked.lock().unwrap().insert(song.id);
         }
     }
 
+    // Wait on every spawned thread
+    join_all(handles).await;
+
     // Flush CSV buffer to file
-    writer.flush()?;
+    writer.lock().unwrap().flush()?;
     Ok(())
 }
 
